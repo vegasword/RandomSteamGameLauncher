@@ -1,6 +1,7 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
+#include "time.h"
 
 int main(int argc, char **argv)
 {
@@ -10,32 +11,75 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  char fullPath[_MAX_PATH];
-  _fullpath(fullPath, argv[1], _MAX_PATH);
+  srand((unsigned int)time(NULL));
   
   long fileSize = 0;
-  FILE *libraryFile = fopen(fullPath, "r");
-  if (libraryFile && !ferror(libraryFile))
+  FILE *steamLibraryFile = fopen(argv[1], "r");
+  if (steamLibraryFile)
   {
-    fseek(libraryFile, 0, SEEK_END);
-    fileSize = ftell(libraryFile);
-    rewind(libraryFile);
+    fseek(steamLibraryFile, 0, SEEK_END);
+    fileSize = ftell(steamLibraryFile);
+    rewind(steamLibraryFile);
   }
   else
   {
-    fprintf(stderr, "Failed to open \"%s\" !\n", fullPath);
+    fprintf(stderr, "Failed to open \"%s\" !\n", argv[1]);
     perror("Reason");
     return 1;
   }
 
-  char *fileBuffer = malloc(fileSize + 1);
-  fread(fileBuffer, fileSize, 1, libraryFile);
+  char *steamLibraryfileBuffer = malloc(fileSize + 1);
+  fread(steamLibraryfileBuffer, fileSize, 1, steamLibraryFile);
+  fclose(steamLibraryFile);
   
-  char *apps = strstr(fileBuffer, "\"apps\"");
-  printf("%s", apps);
+  int appsCount = 0;
+  int appIds[4096];
+  {
+    char *apps = strstr(steamLibraryfileBuffer, "\"apps\"") + 6;
+    char idBuffer[10];
+  
+    int endOfParsing = 0;
+    while (*apps != '}')
+    {
+      int doubleQuoteSkipCount = (appsCount > 0) ? 4 : 1;
+      while (doubleQuoteSkipCount--)
+      {
+        while (*apps != '"')
+        {
+          endOfParsing = (*apps == '}');
+          if (endOfParsing) break;
+          apps++;
+        }
+        if (endOfParsing) break;
+        apps++;
+      }
 
-  //TODO: Parse all the game id, filter with a banlist file and launch a ramdom game using steam://apprunid/{id}
+      if (endOfParsing) break;
+      
+      char *nextDoubleQuote = apps;
+      while (*nextDoubleQuote != '"') nextDoubleQuote++;
+
+      int numberLength = (int)(nextDoubleQuote - apps);
+      memcpy(idBuffer, apps, numberLength);
+      appIds[appsCount] = atoi(idBuffer);
+      appsCount++;  
+    }
+  }
   
-  fclose(libraryFile);
+  int randomGame = appIds[rand() % (appsCount + 1)];
+  char command[64];
+#ifdef _WIN32
+  snprintf(command, sizeof(command), "start \"\" \"steam://rungameid/%d\"", randomGame);
+#elif defined(__APPLE__) //TODO: Test it
+  snprintf(command, sizeof(command), "open \"steam://rungameid/%d\"", randomGame);
+#elif defined(__linux__) //TODO: Test it
+  snprintf(command, sizeof(command), "xdg-open \"steam://rungameid/%d\"", randomGame);
+#else
+  fprintf(stderr, "Unsupported operating system :'(\n");
+  return 1;
+#endif
+  system(command);
+  
+  free(steamLibraryfileBuffer);
   return 0;
 }
